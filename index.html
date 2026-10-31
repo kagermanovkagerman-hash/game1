@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Светлячки</title>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;600&family=Unbounded:wght@600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#12162b;--ink:#eef1f8;--dim:#8d96b8;--glow:#ffc83d;--teal:#3ddbd0;color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px);background:var(--bg)}
+body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:Rubik,system-ui,sans-serif;overflow:hidden;touch-action:manipulation;-webkit-user-select:none;user-select:none}
+[hidden]{display:none!important}
+#app{display:flex;flex-direction:column;height:100%}
+.hud{display:flex;justify-content:space-between;align-items:baseline;padding:14px 20px;font-family:Unbounded,Rubik,sans-serif;font-weight:600}
+.hud span{font-size:28px}
+.hud small{font-family:Rubik,sans-serif;font-weight:400;font-size:14px;color:var(--dim);margin-right:8px}
+#time{color:var(--teal)}
+#field{position:relative;flex:1;overflow:hidden;background:radial-gradient(ellipse at 50% 100%,#1c2347 0,var(--bg) 70%)}
+.fly{position:absolute;width:72px;height:72px;margin:-36px 0 0 -36px;padding:0;border:0;background:none;cursor:pointer;animation:life 1500ms ease-in-out forwards;-webkit-tap-highlight-color:transparent}
+.fly::before{content:"";position:absolute;left:50%;top:50%;width:22px;height:22px;margin:-11px;border-radius:50%;background:var(--glow);box-shadow:0 0 18px 8px rgba(255,200,61,.45)}
+.fly.caught{animation:pop .25s ease-out forwards;pointer-events:none}
+@keyframes life{0%{transform:scale(.2);opacity:0}25%{transform:scale(1);opacity:1}100%{transform:scale(.6);opacity:0}}
+@keyframes pop{to{transform:scale(1.8);opacity:0}}
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center;background:rgba(18,22,43,.93)}
+.screen h1{margin:0;font-family:Unbounded,Rubik,sans-serif;font-size:34px;color:var(--glow)}
+.screen p{margin:0;max-width:28ch;line-height:1.5;color:var(--dim)}
+.big{font-family:Unbounded,Rubik,sans-serif;font-size:56px;font-weight:600;color:var(--ink)}
+.screen button{margin-top:14px;padding:14px 36px;border:0;border-radius:14px;background:var(--teal);color:#08201e;font:600 18px Rubik,sans-serif;cursor:pointer}
+.screen button:focus-visible,.fly:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
+@media (prefers-reduced-motion:reduce){.fly{animation-duration:1500ms!important}}
+</style>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="hud"><div><small>Поймано</small><span id="score">0</span></div><div><small>Секунды</small><span id="time">30</span></div></div>
+  <div id="field">
+    <div class="screen" id="start">
+      <h1>Светлячки</h1>
+      <p>Нажимай на огоньки, пока они не погасли. У тебя 30 секунд.</p>
+      <p id="record"></p>
+      <button id="play">Играть</button>
+    </div>
+    <div class="screen" id="end" hidden>
+      <p>Время вышло</p>
+      <div class="big" id="final">0</div>
+      <p>Поймано огоньков</p>
+      <p id="best"></p>
+      <button id="again">Играть ещё раз</button>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var $=function(s){return document.querySelector(s)};
+  var field=$('#field'),scoreEl=$('#score'),timeEl=$('#time'),start=$('#start'),end=$('#end');
+  var DURATION=30,score=0,running=false,endAt=0,spawnT=0,tickT=0,best=0;
+  try{best=+localStorage.getItem('fireflies-best')||0}catch(e){}
+  var tg=window.Telegram&&window.Telegram.WebApp;
+  if(tg){try{tg.ready();tg.expand()}catch(e){}}
+  function buzz(){try{tg&&tg.HapticFeedback&&tg.HapticFeedback.impactOccurred('light')}catch(e){}}
+  function clearFlies(){field.querySelectorAll('.fly').forEach(function(n){n.remove()})}
+
+  function spawn(){
+    if(!running)return;
+    var progress=1-Math.max(0,endAt-performance.now())/(DURATION*1000);
+    var r=field.getBoundingClientRect(),pad=40;
+    var f=document.createElement('button');
+    f.className='fly';
+    f.setAttribute('aria-label','Огонёк');
+    f.style.left=(pad+Math.random()*Math.max(1,r.width-pad*2))+'px';
+    f.style.top=(pad+Math.random()*Math.max(1,r.height-pad*2))+'px';
+    f.style.animationDuration=(1500-progress*600)+'ms';
+    f.addEventListener('animationend',function(){f.remove()});
+    f.addEventListener('pointerdown',function(e){
+      e.preventDefault();
+      if(!running||f.classList.contains('caught'))return;
+      score++;scoreEl.textContent=score;buzz();
+      f.classList.add('caught');
+    });
+    field.appendChild(f);
+    spawnT=setTimeout(spawn,750-progress*400);
+  }
+  function tick(){
+    var left=Math.max(0,endAt-performance.now());
+    timeEl.textContent=Math.ceil(left/1000);
+    if(left<=0){finish();return}
+    tickT=setTimeout(tick,100);
+  }
+  function begin(){
+    score=0;scoreEl.textContent=0;clearFlies();
+    start.hidden=true;end.hidden=true;
+    running=true;endAt=performance.now()+DURATION*1000;
+    tick();spawn();
+  }
+  function finish(){
+    running=false;clearTimeout(spawnT);clearTimeout(tickT);clearFlies();
+    var record=score>best;
+    if(record){best=score;try{localStorage.setItem('fireflies-best',best)}catch(e){}}
+    $('#final').textContent=score;
+    $('#best').textContent=record&&score>0?'Новый рекорд!':'Рекорд: '+best;
+    end.hidden=false;
+  }
+  $('#play').onclick=begin;$('#again').onclick=begin;
+  if(best>0)$('#record').textContent='Рекорд: '+best;
+})();
+</script>
+</body>
+</html>
